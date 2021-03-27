@@ -1,0 +1,85 @@
+//@version=4
+strategy(title="hammer rsi", overlay=false, max_bars_back=5000,
+     pyramiding=0, initial_capital=100000,
+     default_qty_type=strategy.cash,
+     default_qty_value=100, currency = currency.USD,
+     commission_value=0, slippage=2)
+     
+///MONEY FLOW INDEX
+length = input(title="Period Length", type=input.integer, defval=14, minval=1)
+prc = avg(high, low, close)
+raw = prc * volume
+pos_day = (prc[0] >= prc[1]) ? raw : 0
+neg_day = (prc[0] <= prc[1]) ? raw : 0
+pos_period = sum(pos_day, length)
+neg_period = sum(neg_day, length)
+mf_ratio = (pos_period / neg_period)
+mf_index = 100 - (100 / (1 + mf_ratio)) //KEY
+
+//VZO Input
+vzo_barcolor_enabled    = input(false, 'Bar color')
+vzo_len                 = input(14, 'EMA Length', type=input.integer, minval=2)
+vzo_smooth_enabled      = input(true, 'Smooth')
+vzo_smooth              = input(4, 'Smooth length', type=input.integer, minval=2)
+vzo_over1       = input(60, 'Overbought/Oversold Zone 1', type=input.integer, minval=0)
+vzo_over2       = input(40, 'Overbought/Oversold Zone 2', type=input.integer, minval=0)
+vzo_neutral     = input(5, 'Neutral Zone', type=input.integer, minval=0)
+// Calcs
+// source: http://traders.com/Documentation/FEEDbk_docs/2011/05/Khalil.html    
+// vzo = 100 x (VP/TV)
+//      VP (Volume position) = X-days Ema (± volume)
+//      TV (Total volume) = X-days Ema (volume)
+vzo(len) =>
+    svol = open < close ? volume : -volume
+    vp = ema(svol, len)
+    tv = ema(volume, len)
+    100 * (vp/tv)
+vzo_val = vzo(vzo_len)
+if vzo_smooth_enabled
+    vzo_val := ema(vzo_val, vzo_smooth)
+// VZO plot
+p_vzo = plot(vzo_val, color=vzo_val > vzo_neutral ? color.green : vzo_val < -vzo_neutral ? color.red : color.silver, linewidth=2, title='VZO')
+plot(vzo_val, color=vzo_val > 0 ? color.green : color.red, style=plot.style_area, transp=70)
+
+
+//STOCH RSI
+lengthrsi = input(10)
+overSold = input( 1 )
+overBought = input(99)
+call_trail_stop = input(300)
+call_trail_offset = input(0)
+call_sl = input(10000)
+price = ohlc4
+vrsi = rsi(price, lengthrsi)
+smoothK = input(3, minval=1)
+smoothD = input(3, minval=1)
+lengthRSI = input(14, minval=1)
+lengthStoch = input(14, minval=1)
+src = input(close, title="RSI Source")
+rsi1 = rsi(src, lengthRSI)
+k = sma(stoch(rsi1, rsi1, rsi1, lengthStoch), smoothK)
+d = sma(k, smoothD)
+//plot( k, color=color.blue, linewidth=1, title="K")
+//plot( d, color=color.red, linewidth=1, title="D")
+
+if lowest(mf_index,5)<30 and crossover(k,d) and vzo_val<-30 and highest(vzo_val,12)>0 //and (strategy.position_size == 0) //and lowest(zrsi,10)<40 
+    strategy.entry(id="EL", long=true)
+
+exitLong = mf_index>70 and crossover(d,k) and (strategy.position_size > 0) 
+strategy.close(id="EL", when=exitLong)
+
+
+////////////////////STOP LOSS
+// The Fixed Percent Stop Loss Code
+// User Options to Change Inputs (%)
+stopPer = input(3.0, title='Stop Loss %', type=input.float) / 100
+takePer = input(5.0, title='Take Profit %', type=input.float) / 100
+
+// Determine where you've entered and in what direction
+longStop = strategy.position_avg_price * (1 - stopPer)
+longTake = strategy.position_avg_price * (1 + takePer)
+
+if strategy.position_size > 0 
+    strategy.exit(id="Close Long", stop=longStop, limit=longTake)
+
+    
